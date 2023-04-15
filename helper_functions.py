@@ -5,6 +5,10 @@ import cv2
 import matplotlib.pylab as plt
 import numpy as np
 import pandas as pd
+import gc
+
+
+PIXEL_LIMIT = 1500**2
 
 @st.cache_resource
 def load_sam_model(model_type):
@@ -23,9 +27,9 @@ def load_sam_model(model_type):
     sam.to(device=device)
 
     mask_generator = SamAutomaticMaskGenerator(sam)
-    predictor = SamPredictor(sam)
+    # predictor = SamPredictor(sam)
 
-    return mask_generator, predictor
+    return mask_generator#, predictor
     
 def get_images_list():
     path = './images/'
@@ -34,7 +38,7 @@ def get_images_list():
     images_list = []
 
     for image in files:
-        if image.split('.')[-1] in extensions:
+        if image.split('.')[-1].lower() in extensions:
             images_list.append(image)
 
     return images_list
@@ -45,8 +49,9 @@ def load_image(image_name):
     image = cv2.imread(path+image_name)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
     pixels = image.shape[1]*image.shape[0]
-    pixel_limit = 538450
+    pixel_limit = PIXEL_LIMIT
     resized_image = image
+    # resized_image = cv2.bilateralFilter(resized_image, 11, 75, 75)
     if pixels>pixel_limit:
         scale_percent = round(pixel_limit/pixels,2)*100
         # percent of original size
@@ -59,13 +64,14 @@ def load_image(image_name):
     return original_image, resized_image
 
 def show_anns(anns, image):
-    fig = plt.figure()
+
+    fig,ax = plt.subplots()
     fig.set_size_inches(20,20)
     plt.imshow(image)
     if len(anns) == 0:
         return
     anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
-    ax = plt.gca()
+
     ax.set_autoscale_on(False)
     polygons = []
     color = []
@@ -81,12 +87,73 @@ def show_anns(anns, image):
     b = fig.axes[0].get_window_extent()
     img = np.array(fig.canvas.buffer_rgba())
     img = img[int(b.y0):int(b.y1),int(b.x0):int(b.x1),:]
-    img = cv2.cvtColor(img, cv2.COLOR_RGBA2BGRA)
-    
-    return img
+    fig.clf()
+    ax.clear()
+    plt.close()
+    gc.collect()
 
+    return img
+    
 def get_masked_df(masks):
     
     l = [(mask['area'], mask['stability_score']) for mask in masks]
     l = np.transpose(np.array(l))
     return pd.DataFrame({'area':l[0], 'score':l[1]})
+
+def get_balls_data(img):
+    image = img.copy()
+    balls_data = {'x':[], 'y':[], 'area':[]}
+
+    original = image.copy()
+
+    lower = np.array([240, 0, 0], dtype="uint8")
+    upper = np.array([255, 30, 30], dtype="uint8")
+    mask = cv2.inRange(image, lower, upper)
+    detected = cv2.bitwise_and(original, original, mask=mask)
+
+    # Remove noise
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3,3))
+    opening = cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel, iterations=1)
+
+    # Find contours and find total area
+    cnts = cv2.findContours(opening, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    cnts = cnts[0] if len(cnts) == 2 else cnts[1]
+    area = 0
+    for c in cnts:
+        area += cv2.contourArea(c)
+        cv2.drawContours(original,[c], 0, (0,0,0), 2)
+
+
+    gray = opening
+    
+    # setting threshold of gray image
+    _, threshold = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
+    
+    # using a findContours() function
+    contours, _ = cv2.findContours(
+        threshold, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
+
+    
+    # list for storing names of shapes
+    for contour in contours:
+
+        approx = cv2.approxPolyDP(
+            contour, 0.01 * cv2.arcLength(contour, True), True)
+        area = cv2.contourArea(contour)
+        # using drawContours() function
+        cv2.drawContours(image, [contour], 0, (0, 255, 0), 1)
+    
+        # finding center point of shape
+        M = cv2.moments(contour)
+        if M['m00'] != 0.0:
+            
+            x = int(M['m10']/M['m00'])
+            y = int(M['m01']/M['m00'])
+        # cv2.putText(opening, 'circle', (x, y),
+        #             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+
+        balls_data['x'].append(x)
+        balls_data['y'].append(y)
+        balls_data['area'].append(area)
+
+    return pd.DataFrame(balls_data)
