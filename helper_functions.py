@@ -17,9 +17,9 @@ def load_sam_model(model_type):
     device = "cuda"
 
     if model_type == 'vit_b':
-        model_name = 'sam_vit_b_01ec64'
+        model_name = 'sam_vit_b'
     elif model_type == 'vit_h':
-        model_name = 'sam_vit_h_4b8939'
+        model_name = 'sam_vit_h'
     elif model_type == 'vit_l':
         model_name = 'sam_vit_l_0b3195'
 
