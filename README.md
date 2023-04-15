@@ -41,6 +41,7 @@ The notebook *demo.ipynb* has been implemented where the tool can be used throug
 
 ## How can you use your own images? 
 If you want to use your own images just upload them into the images folder generated in Google Colab and reload the page (see the capture).
+
 ![image](https://user-images.githubusercontent.com/45445692/232187536-b9f2fdd3-4ba0-4743-8c9c-4ca0f6d95064.png)
 
 ## Opportunities for improvement
@@ -68,3 +69,9 @@ P80 Area:
 
 P80 Diameter:
 ![image](https://user-images.githubusercontent.com/45445692/232190174-39370545-8c96-476e-a854-06e1038021b9.png)
+
+
+## I hope you find it useful
+anything to the dm :)
+
+![image](https://media.tenor.com/mMVnCaqJ4D8AAAAM/loli-dance.gif)
