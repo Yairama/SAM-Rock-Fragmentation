@@ -6,9 +6,9 @@ import matplotlib.pylab as plt
 import numpy as np
 import pandas as pd
 import gc
+import math
 
-
-PIXEL_LIMIT = 1500**2
+PIXEL_LIMIT = 1200**2
 
 @st.cache_resource
 def load_sam_model(model_type):
@@ -26,7 +26,7 @@ def load_sam_model(model_type):
     sam = sam_model_registry[model_type](checkpoint=models_route+model_name+'.pth')
     sam.to(device=device)
 
-    mask_generator = SamAutomaticMaskGenerator(sam)
+    mask_generator = SamAutomaticMaskGenerator(sam, points_per_side=64)
     # predictor = SamPredictor(sam)
 
     return mask_generator#, predictor
@@ -47,7 +47,7 @@ def get_images_list():
 def load_image(image_name):
     path = './images/'
     image = cv2.imread(path+image_name)
-    image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
     pixels = image.shape[1]*image.shape[0]
     pixel_limit = PIXEL_LIMIT
     resized_image = image
@@ -63,7 +63,7 @@ def load_image(image_name):
     original_image = image
     return original_image, resized_image
 
-def show_anns(anns, image):
+def show_anns(anns, image, P80_area):
 
     fig,ax = plt.subplots()
     fig.set_size_inches(20,20)
@@ -73,12 +73,16 @@ def show_anns(anns, image):
     anns = sorted(anns, key=(lambda x: x['area']), reverse=True)
 
     ax.set_autoscale_on(False)
-    polygons = []
-    color = []
+    
     for ann in anns:
         m = ann['segmentation']
         img = np.ones((m.shape[0], m.shape[1], 3))
-        color_mask = np.random.random((1, 3)).tolist()[0]
+        color_mask=[0,1,0]
+        if ann['area']<= P80_area:
+            color_mask=[0, 0.99, 0]
+        else:
+            color_mask=[0, 0, 0.99]
+        
         for i in range(3):
             img[:,:,i] = color_mask[i]
         ax.imshow(np.dstack((img, m*0.35)))
@@ -98,11 +102,13 @@ def get_masked_df(masks):
     
     l = [(mask['area'], mask['stability_score']) for mask in masks]
     l = np.transpose(np.array(l))
-    return pd.DataFrame({'area':l[0], 'score':l[1]})
+    _df = pd.DataFrame({'area':l[0], 'score':l[1]})
+
+    return _df
 
 def get_balls_data(img):
     image = img.copy()
-    balls_data = {'x':[], 'y':[], 'area':[]}
+    balls_data = {'x':[], 'y':[], 'area':[], 'diameter':[]}
 
     original = image.copy()
 
@@ -118,11 +124,6 @@ def get_balls_data(img):
     # Find contours and find total area
     cnts = cv2.findContours(opening, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     cnts = cnts[0] if len(cnts) == 2 else cnts[1]
-    area = 0
-    for c in cnts:
-        area += cv2.contourArea(c)
-        cv2.drawContours(original,[c], 0, (0,0,0), 2)
-
 
     gray = opening
     
@@ -140,6 +141,9 @@ def get_balls_data(img):
         approx = cv2.approxPolyDP(
             contour, 0.01 * cv2.arcLength(contour, True), True)
         area = cv2.contourArea(contour)
+        diameter = math.sqrt(4*area/math.pi)
+        if area<=30:
+            continue
         # using drawContours() function
         cv2.drawContours(image, [contour], 0, (0, 255, 0), 1)
     
@@ -155,5 +159,25 @@ def get_balls_data(img):
         balls_data['x'].append(x)
         balls_data['y'].append(y)
         balls_data['area'].append(area)
+        balls_data['diameter'].append(diameter)
+    
 
     return pd.DataFrame(balls_data)
+
+def df_fixer(df, ball_real_diameter, beta_df_balls):
+    _df = df.copy()
+    ball_pixel_diameter = beta_df_balls['diameter'].max()
+    real_area = math.pi*ball_real_diameter*ball_real_diameter/4
+    pixel_area = beta_df_balls['area'].max()
+    
+    _df['area_pixel'] = df['area']
+    _df['diameter_pixel'] = (4*df['area']/math.pi).pow(0.5)
+    _df['area'] = df['area']*real_area/pixel_area
+    _df['diameter'] = _df['diameter_pixel']*ball_real_diameter/ball_pixel_diameter
+    return _df
+
+def area_converter(area, ball_real_diameter, beta_df_balls):
+    real_area = math.pi*ball_real_diameter*ball_real_diameter/4
+    pixel_area = beta_df_balls['area'].max()
+    
+    return area*real_area/pixel_area
